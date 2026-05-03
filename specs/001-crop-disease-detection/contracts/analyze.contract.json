@@ -1,0 +1,234 @@
+﻿{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Zaraat AI Analyze API",
+    "version": "1.0.0",
+    "description": "Server-side crop disease analysis endpoint. All OpenAI calls are server-to-server only. The API key is never exposed to the client."
+  },
+  "paths": {
+    "/api/analyze": {
+      "post": {
+        "summary": "Analyze a crop leaf image for disease",
+        "description": "Accepts a crop leaf image (+ optional farmer context text) and returns a structured disease diagnosis via GPT-4 Vision. Single disease result only per Principle VI.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["image"],
+                "properties": {
+                  "image": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Crop leaf photo. JPEG, PNG, or WebP. Maximum 10 MB."
+                  },
+                  "context": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "description": "Optional farmer description in any language (e.g. '3 din se yeh ho raha hai')"
+                  },
+                  "language": {
+                    "type": "string",
+                    "enum": ["ur", "en"],
+                    "default": "ur",
+                    "description": "Language for the AI response. Defaults to Urdu."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful diagnosis",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosisResult"
+                },
+                "example": {
+                  "disease": "گندم کا زنگ (Puccinia striiformis)",
+                  "severity": "Moderate",
+                  "treatmentSteps": [
+                    "1. پہلے تمام متاثرہ پتے توڑ کر جلا دیں۔",
+                    "2. 48 گھنٹوں کے اندر فنگی سائیڈ اسپرے کریں۔",
+                    "3. ہر 3 دن بعد فصل کا معائنہ کریں۔"
+                  ],
+                  "spraySchedule": "ہر 7 دن بعد اسپرے کریں، مسلسل 3 ہفتوں تک۔",
+                  "medicines": {
+                    "brandNames": ["Tilt 250 EC (Syngenta)", "Score 250 EC (Syngenta)"],
+                    "genericNames": ["Propiconazole 25% EC", "Difenoconazole 25% EC"]
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid image (bad type, size, or non-crop content)",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DiagnosisError" },
+                "examples": {
+                  "invalid_image": {
+                    "value": {
+                      "error": {
+                        "code": "INVALID_IMAGE",
+                        "message": "فائل کا سائز بہت بڑا ہے۔ 10 MB سے کم تصویر اپ لوڈ کریں۔",
+                        "messageEn": "File too large. Upload an image under 10 MB."
+                      }
+                    }
+                  },
+                  "not_a_crop_leaf": {
+                    "value": {
+                      "error": {
+                        "code": "NOT_A_CROP_LEAF",
+                        "message": "براہ کرم فصل کے پتے کی تصویر اپ لوڈ کریں۔",
+                        "messageEn": "Please upload a photo of a crop leaf."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "Request timeout (OpenAI took > 30 seconds)",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DiagnosisError" },
+                "example": {
+                  "error": {
+                    "code": "TIMEOUT",
+                    "message": "سرور نے جواب نہیں دیا۔ دوبارہ کوشش کریں۔",
+                    "messageEn": "Server did not respond. Please try again."
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Diagnosis failed (blurry, healthy, or ambiguous image)",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DiagnosisError" },
+                "example": {
+                  "error": {
+                    "code": "DIAGNOSIS_FAILED",
+                    "message": "تصویر واضح نہیں۔ روشنی میں دوبارہ تصویر لیں۔",
+                    "messageEn": "Image unclear. Retake in better lighting."
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded (10 requests per minute per IP)",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DiagnosisError" },
+                "example": {
+                  "error": {
+                    "code": "RATE_LIMITED",
+                    "message": "بہت زیادہ درخواستیں۔ ایک منٹ بعد دوبارہ کوشش کریں۔",
+                    "messageEn": "Too many requests. Try again in one minute."
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Upstream error (OpenAI API unavailable)",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DiagnosisError" },
+                "example": {
+                  "error": {
+                    "code": "UPSTREAM_ERROR",
+                    "message": "سروس عارضی طور پر دستیاب نہیں۔ دوبارہ کوشش کریں۔",
+                    "messageEn": "Service temporarily unavailable. Please retry."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "SeverityLevel": {
+        "type": "string",
+        "enum": ["Mild", "Moderate", "Severe"],
+        "description": "Disease severity. Exactly one of three values."
+      },
+      "MedicineSet": {
+        "type": "object",
+        "required": ["brandNames", "genericNames"],
+        "properties": {
+          "brandNames": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1,
+            "description": "Pakistani brand medicine names with manufacturer in parentheses",
+            "example": ["Tilt 250 EC (Syngenta)"]
+          },
+          "genericNames": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1,
+            "description": "Generic chemical names with concentration",
+            "example": ["Propiconazole 25% EC"]
+          }
+        }
+      },
+      "DiagnosisResult": {
+        "type": "object",
+        "required": ["disease", "severity", "treatmentSteps", "spraySchedule", "medicines"],
+        "properties": {
+          "disease": {
+            "type": "string",
+            "description": "Disease name in selected language, Latin scientific name in parentheses"
+          },
+          "severity": { "$ref": "#/components/schemas/SeverityLevel" },
+          "treatmentSteps": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1,
+            "description": "Numbered treatment steps starting with action verbs"
+          },
+          "spraySchedule": {
+            "type": "string",
+            "description": "Spray frequency and total duration in selected language"
+          },
+          "medicines": { "$ref": "#/components/schemas/MedicineSet" }
+        }
+      },
+      "DiagnosisError": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message", "messageEn"],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": ["INVALID_IMAGE", "NOT_A_CROP_LEAF", "DIAGNOSIS_FAILED", "UPSTREAM_ERROR", "TIMEOUT", "RATE_LIMITED"]
+              },
+              "message": {
+                "type": "string",
+                "description": "User-facing error message in the selected language"
+              },
+              "messageEn": {
+                "type": "string",
+                "description": "Error message in English (always present for fallback/debugging)"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

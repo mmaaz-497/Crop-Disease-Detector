@@ -1,0 +1,34 @@
+{
+  "name": "zaraat-ai",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "lint:env": "grep -r \"NEXT_PUBLIC_OPENAI\" . --include=\"*.ts\" --include=\"*.tsx\" --exclude-dir=node_modules --exclude-dir=.next || echo \"OK: No NEXT_PUBLIC_OPENAI found\"",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "gsap": "^3.12.5",
+    "jspdf": "^2.5.1",
+    "nanoid": "^5.0.7",
+    "next": "14.2.3",
+    "openai": "^4.47.1",
+    "react": "^18",
+    "react-dom": "^18",
+    "server-only": "^0.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "autoprefixer": "^10.0.1",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.3",
+    "postcss": "^8",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5"
+  }
+}
