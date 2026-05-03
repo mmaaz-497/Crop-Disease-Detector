@@ -1,204 +1,185 @@
-import type { DiagnosisResult, Language, SeverityLevel } from '@/types/diagnosis';
+import type { DiagnosisResult, Language } from '@/types/diagnosis';
 
-const PAGE_W = 210;
-const MARGIN = 20;
-const CONTENT_W = PAGE_W - 2 * MARGIN;
+const PAGE_W = 210;   // A4 mm
+const MARGIN = 16;
+const CAPTURE_PX = 640; // fixed pixel width for the off-screen clone
 
-const SEVERITY_COLORS: Record<SeverityLevel, [number, number, number]> = {
-  Mild: [116, 198, 157],
-  Moderate: [245, 158, 11],
-  Severe: [239, 68, 68],
-};
-
-async function loadFontBase64(): Promise<string | null> {
-  try {
-    const res = await fetch('/fonts/NotoNaskhArabic.b64.txt');
-    if (!res.ok) return null;
-    return await res.text();
-  } catch {
-    return null;
-  }
+/** Strip every inline style GSAP may have left on the cloned tree */
+function resetGsapStyles(root: HTMLElement): void {
+  root.querySelectorAll<HTMLElement>('[style]').forEach((el) => {
+    el.style.removeProperty('transform');
+    el.style.removeProperty('opacity');
+    el.style.removeProperty('visibility');
+    el.style.removeProperty('will-change');
+    el.style.opacity = '1';
+  });
+  // Also clear root itself
+  root.style.removeProperty('transform');
+  root.style.removeProperty('opacity');
+  root.style.opacity = '1';
 }
 
-function addPageIfNeeded(doc: import('jspdf').jsPDF, y: number, extra = 20): number {
-  if (y > 260) {
-    doc.addPage();
-    return MARGIN + 10;
+/** Render captureElement into an off-screen fixed-width container and return canvas */
+async function captureFixedWidth(
+  captureElement: HTMLElement,
+): Promise<HTMLCanvasElement> {
+  const { default: html2canvas } = await import('html2canvas');
+
+  // Off-screen container — fixed 640 px wide, not part of layout flow
+  const wrapper = document.createElement('div');
+  wrapper.style.cssText = [
+    'position:fixed',
+    'top:0',
+    'left:-9999px',
+    `width:${CAPTURE_PX}px`,
+    'background:#F0FFF4',
+    'padding:12px',
+    'box-sizing:border-box',
+    'z-index:-9999',
+  ].join(';');
+
+  const clone = captureElement.cloneNode(true) as HTMLElement;
+  clone.style.width = '100%';
+  clone.style.maxWidth = '100%';
+  clone.style.overflow = 'visible';
+  resetGsapStyles(clone);
+
+  wrapper.appendChild(clone);
+  document.body.appendChild(wrapper);
+
+  try {
+    const canvas = await html2canvas(wrapper, {
+      scale: 2,
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: '#F0FFF4',
+      logging: false,
+      width: CAPTURE_PX,
+      windowWidth: CAPTURE_PX,
+    });
+    return canvas;
+  } finally {
+    document.body.removeChild(wrapper);
   }
-  return y;
 }
 
 export async function generateDiagnosisPDF(
   result: DiagnosisResult,
   scanDate: string,
   lang: Language,
+  captureElement: HTMLElement | null,
 ): Promise<void> {
   const { default: jsPDF } = await import('jspdf');
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-
-  // Attempt to load Urdu font
-  let fontLoaded = false;
-  if (lang === 'ur') {
-    const b64 = await loadFontBase64();
-    if (b64) {
-      doc.addFileToVFS('NotoNaskhArabic.ttf', b64);
-      doc.addFont('NotoNaskhArabic.ttf', 'NotoNaskhArabic', 'normal');
-      doc.setFont('NotoNaskhArabic');
-      fontLoaded = true;
-    }
-  }
-  if (!fontLoaded) {
-    doc.setFont('helvetica');
-  }
-
-  const isRTL = lang === 'ur';
+  const usableW = PAGE_W - 2 * MARGIN;
   let y = MARGIN;
 
-  // Helper: render a text line respecting RTL
-  function renderLine(text: string, yPos: number, xOverride?: number): void {
-    if (isRTL) {
-      const tw = doc.getTextWidth(text);
-      const x = xOverride !== undefined ? xOverride : PAGE_W - MARGIN - tw;
-      doc.text(text, x, yPos);
-    } else {
-      doc.text(text, xOverride !== undefined ? xOverride : MARGIN, yPos);
-    }
-  }
-
-  // Helper: wrapped text
-  function renderWrapped(text: string, yPos: number): number {
-    const lines = doc.splitTextToSize(text, CONTENT_W) as string[];
-    lines.forEach((line: string, i: number) => {
-      renderLine(line, yPos + i * 5.5);
-    });
-    return yPos + lines.length * 5.5;
-  }
-
-  // ── Block 1: Header ────────────────────────────────────────────────────────
-  doc.setFontSize(20);
+  // ── Header (pure ASCII — Helvetica handles it perfectly) ──────────────────
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(18);
   doc.setTextColor(27, 67, 50);
-  doc.setFont(fontLoaded ? 'NotoNaskhArabic' : 'helvetica', 'bold');
-  renderLine('Zaraat AI | زرعت اے آئی', y);
+  doc.text('Zaraat AI', MARGIN, y);
   y += 7;
 
-  doc.setFontSize(9);
-  doc.setTextColor(100, 120, 100);
-  doc.setFont(fontLoaded ? 'NotoNaskhArabic' : 'helvetica', 'normal');
-  renderLine(
-    lang === 'ur' ? 'AI فصل تشخیص رپورٹ' : 'AI Crop Diagnosis Report',
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9.5);
+  doc.setTextColor(90, 120, 90);
+  doc.text(
+    lang === 'ur' ? 'AI Crop Diagnosis Report (Urdu)' : 'AI Crop Diagnosis Report',
+    MARGIN,
     y,
   );
+  y += 5.5;
+
+  // Meta row: date left, category+severity right
+  doc.setFontSize(8.5);
+  doc.setTextColor(140);
+  doc.text('Date: ' + scanDate.slice(0, 10), MARGIN, y);
+  const categoryLabel =
+    result.category === 'Pest'
+      ? 'Pest'
+      : result.category === 'Nutrient Deficiency'
+      ? 'Nutrient Deficiency'
+      : 'Disease';
+  const metaRight = categoryLabel + '  |  Severity: ' + result.severity;
+  doc.text(metaRight, PAGE_W - MARGIN - doc.getTextWidth(metaRight), y);
   y += 5;
 
-  // Rule
+  // Green separator
   doc.setDrawColor(116, 198, 157);
   doc.setLineWidth(0.5);
   doc.line(MARGIN, y, PAGE_W - MARGIN, y);
   y += 7;
 
-  // ── Block 2: Metadata ──────────────────────────────────────────────────────
-  doc.setFontSize(9);
-  doc.setTextColor(120);
-  const dateLabel = lang === 'ur' ? 'تاریخ: ' : 'Date: ';
-  renderLine(dateLabel + scanDate.slice(0, 10), y);
-  y += 10;
+  // ── Body ──────────────────────────────────────────────────────────────────
+  if (captureElement) {
+    const canvas = await captureFixedWidth(captureElement);
 
-  // ── Block 3: Disease Name ──────────────────────────────────────────────────
-  y = addPageIfNeeded(doc, y);
-  doc.setFontSize(15);
-  doc.setTextColor(27, 67, 50);
-  doc.setFont(fontLoaded ? 'NotoNaskhArabic' : 'helvetica', 'bold');
-  y = renderWrapped(result.disease, y);
-  y += 5;
+    const imgData = canvas.toDataURL('image/png');
+    // canvas.width is at 2× scale, so logical pixels = canvas.width / 2
+    const logicalW = canvas.width / 2;
+    const logicalH = canvas.height / 2;
 
-  // ── Block 4: Severity Badge ────────────────────────────────────────────────
-  y = addPageIfNeeded(doc, y);
-  const [r, g, b] = SEVERITY_COLORS[result.severity];
-  doc.setFillColor(r, g, b);
-  doc.roundedRect(MARGIN, y, 55, 8, 2, 2, 'F');
-  doc.setFontSize(9);
-  doc.setTextColor(255, 255, 255);
-  doc.setFont(fontLoaded ? 'NotoNaskhArabic' : 'helvetica', 'bold');
-  doc.text(result.severity, MARGIN + 3, y + 5.5);
-  y += 14;
+    // Map logical pixels → mm using the capture container width
+    const mmPerPx = usableW / logicalW;
+    const imgH = logicalH * mmPerPx;
 
-  // ── Block 5: Treatment Steps ───────────────────────────────────────────────
-  y = addPageIfNeeded(doc, y);
-  doc.setFontSize(11);
-  doc.setTextColor(27, 67, 50);
-  doc.setFont(fontLoaded ? 'NotoNaskhArabic' : 'helvetica', 'bold');
-  renderLine(lang === 'ur' ? 'علاج کے اقدامات:' : 'Treatment Steps:', y);
-  y += 7;
+    const remainingPage = 287 - y - 6; // leave 6mm above footer
 
-  doc.setFont(fontLoaded ? 'NotoNaskhArabic' : 'helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.setTextColor(60, 60, 60);
+    if (imgH <= remainingPage) {
+      // Fits on current page
+      doc.addImage(imgData, 'PNG', MARGIN, y, usableW, imgH);
+      y += imgH;
+    } else {
+      // Try to fit by scaling down proportionally
+      const scale = remainingPage / imgH;
+      const scaledW = usableW * scale;
+      const scaledH = imgH * scale;
+      const xOffset = MARGIN + (usableW - scaledW) / 2;
+      doc.addImage(imgData, 'PNG', xOffset, y, scaledW, scaledH);
+      y += scaledH;
+    }
+  } else {
+    // Text-only fallback (used when re-exporting from history without live DOM)
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(27, 67, 50);
+    const diseaseLines = doc.splitTextToSize(result.disease, usableW) as string[];
+    doc.text(diseaseLines, MARGIN, y);
+    y += diseaseLines.length * 6 + 5;
 
-  result.treatmentSteps.forEach((step) => {
-    y = addPageIfNeeded(doc, y);
-    y = renderWrapped(step, y);
-    y += 2;
-  });
-  y += 5;
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(50);
+    doc.text('Treatment Steps:', MARGIN, y);
+    y += 5;
 
-  // ── Block 6: Spray Schedule ────────────────────────────────────────────────
-  y = addPageIfNeeded(doc, y);
-  doc.setFontSize(11);
-  doc.setTextColor(27, 67, 50);
-  doc.setFont(fontLoaded ? 'NotoNaskhArabic' : 'helvetica', 'bold');
-  renderLine(lang === 'ur' ? 'اسپرے شیڈول:' : 'Spray Schedule:', y);
-  y += 7;
-  doc.setFont(fontLoaded ? 'NotoNaskhArabic' : 'helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.setTextColor(60, 60, 60);
-  y = renderWrapped(result.spraySchedule, y);
-  y += 7;
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(70);
+    result.treatmentSteps.forEach((step) => {
+      if (y > 275) { doc.addPage(); y = MARGIN; }
+      const wrapped = doc.splitTextToSize(step, usableW) as string[];
+      doc.text(wrapped, MARGIN, y);
+      y += wrapped.length * 5 + 2;
+    });
 
-  // ── Block 7: Medicines ─────────────────────────────────────────────────────
-  y = addPageIfNeeded(doc, y);
-  doc.setFontSize(11);
-  doc.setTextColor(27, 67, 50);
-  doc.setFont(fontLoaded ? 'NotoNaskhArabic' : 'helvetica', 'bold');
-  renderLine(lang === 'ur' ? 'دوائیں:' : 'Medicines:', y);
-  y += 7;
+    if (result.spraySchedule && result.spraySchedule.toUpperCase() !== 'N/A') {
+      y += 3;
+      doc.setFont('helvetica', 'bold');
+      doc.text('Spray Schedule:', MARGIN, y);
+      y += 5;
+      doc.setFont('helvetica', 'normal');
+      const sprayLines = doc.splitTextToSize(result.spraySchedule, usableW) as string[];
+      doc.text(sprayLines, MARGIN, y);
+    }
+  }
 
-  doc.setFont(fontLoaded ? 'NotoNaskhArabic' : 'helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.setTextColor(27, 67, 50);
-  renderLine(lang === 'ur' ? 'برانڈ نام:' : 'Brand Names:', y);
-  y += 5;
-  doc.setFont(fontLoaded ? 'NotoNaskhArabic' : 'helvetica', 'normal');
-  doc.setTextColor(60, 60, 60);
-  result.medicines.brandNames.forEach((name) => {
-    y = addPageIfNeeded(doc, y);
-    renderLine('• ' + name, y);
-    y += 5.5;
-  });
-  y += 3;
+  // ── Footer ────────────────────────────────────────────────────────────────
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(170);
+  doc.text('Generated by Zaraat AI — For guidance only', MARGIN, 289);
 
-  doc.setFont(fontLoaded ? 'NotoNaskhArabic' : 'helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.setTextColor(100);
-  renderLine(lang === 'ur' ? 'جنرک نام:' : 'Generic Names:', y);
-  y += 5;
-  doc.setFont(fontLoaded ? 'NotoNaskhArabic' : 'helvetica', 'normal');
-  doc.setTextColor(80);
-  result.medicines.genericNames.forEach((name) => {
-    y = addPageIfNeeded(doc, y);
-    renderLine('🧪 ' + name, y);
-    y += 5.5;
-  });
-
-  // ── Block 8: Footer ────────────────────────────────────────────────────────
-  doc.setFontSize(8);
-  doc.setTextColor(160);
-  const footerText =
-    lang === 'ur'
-      ? 'زرعت اے آئی کی طرف سے تیار — صرف رہنمائی کے لیے'
-      : 'Generated by Zaraat AI — For guidance only';
-  doc.text(footerText, MARGIN, 287);
-
-  const dateStr = scanDate.slice(0, 10);
-  doc.save(`Zaraat AI-${dateStr}.pdf`);
+  doc.save(`Zaraat-AI-${scanDate.slice(0, 10)}.pdf`);
 }

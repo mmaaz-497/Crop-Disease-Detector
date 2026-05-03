@@ -4,7 +4,7 @@ import { useRef, useEffect, useState } from 'react';
 import { useLanguage } from '@/hooks/useLanguage';
 import { t } from '@/lib/i18n';
 import type { ScanRecord } from '@/types/diagnosis';
-import { getScans } from '@/lib/storage';
+import { getScans, deleteScan } from '@/lib/storage';
 import SeverityBadge from './SeverityBadge';
 import gsap from 'gsap';
 
@@ -12,32 +12,56 @@ export default function RecentScansList() {
   const { lang } = useLanguage();
   const [scans, setScans] = useState<ScanRecord[]>([]);
   const listRef = useRef<HTMLUListElement>(null);
+  const rowRefs = useRef<Map<string, HTMLLIElement>>(new Map());
 
   useEffect(() => {
-    const loaded = getScans();
-    setScans(loaded);
+    setScans(getScans());
   }, []);
 
   useEffect(() => {
     if (scans.length === 0) return;
     const items = listRef.current?.querySelectorAll('li');
     if (!items || items.length === 0) return;
-    const ctx = gsap.context(() => {
-      gsap.from(items, {
+    gsap.killTweensOf(items);
+    const tween = gsap.from(items, {
+      opacity: 0,
+      y: 10,
+      stagger: 0.07,
+      duration: 0.3,
+      ease: 'power2.out',
+    });
+    return () => { tween.kill(); };
+  }, [scans.length]);
+
+  function handleDelete(id: string) {
+    const el = rowRefs.current.get(id);
+    if (el) {
+      gsap.to(el, {
         opacity: 0,
-        y: 10,
-        stagger: 0.07,
-        duration: 0.3,
-        ease: 'power2.out',
+        x: lang === 'ur' ? 40 : -40,
+        height: 0,
+        marginBottom: 0,
+        paddingTop: 0,
+        paddingBottom: 0,
+        duration: 0.28,
+        ease: 'power2.in',
+        onComplete: () => {
+          deleteScan(id);
+          setScans((prev) => prev.filter((s) => s.id !== id));
+          rowRefs.current.delete(id);
+        },
       });
-    }, listRef);
-    return () => ctx.revert();
-  }, [scans]);
+    } else {
+      deleteScan(id);
+      setScans((prev) => prev.filter((s) => s.id !== id));
+    }
+  }
 
   async function handleReExport(scan: ScanRecord) {
     try {
       const { generateDiagnosisPDF } = await import('@/lib/pdf');
-      await generateDiagnosisPDF(scan, scan.date, scan.lang);
+      // No captureRef available from history — use null (falls back to text-only)
+      await generateDiagnosisPDF(scan, scan.date, scan.lang, null);
     } catch {
       // silent
     }
@@ -59,7 +83,10 @@ export default function RecentScansList() {
         {scans.map((scan) => (
           <li
             key={scan.id}
-            className="bg-white rounded-2xl border border-accent/20 p-4 flex items-start gap-3 shadow-sm"
+            ref={(el) => {
+              if (el) rowRefs.current.set(scan.id, el);
+            }}
+            className="bg-white rounded-2xl border border-accent/20 p-4 flex items-start gap-3 shadow-sm overflow-hidden"
           >
             {/* Thumbnail */}
             {scan.imageThumb ? (
@@ -88,15 +115,40 @@ export default function RecentScansList() {
               <SeverityBadge severity={scan.severity} />
             </div>
 
-            {/* PDF re-export */}
-            <button
-              onClick={() => handleReExport(scan)}
-              className="flex-shrink-0 p-2 rounded-xl bg-base hover:bg-accent/10 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
-              title={t('pdfBtn', lang)}
-              aria-label={t('pdfBtn', lang)}
-            >
-              📄
-            </button>
+            {/* Actions */}
+            <div className="flex flex-col gap-1.5 flex-shrink-0">
+              <button
+                onClick={() => handleReExport(scan)}
+                className="p-2 rounded-xl bg-base hover:bg-accent/10 transition-colors min-h-[40px] min-w-[40px] flex items-center justify-center"
+                title={t('pdfBtn', lang)}
+                aria-label={t('pdfBtn', lang)}
+              >
+                📄
+              </button>
+              <button
+                onClick={() => handleDelete(scan.id)}
+                className="p-2 rounded-xl bg-red-50 hover:bg-red-100 transition-colors min-h-[40px] min-w-[40px] flex items-center justify-center text-red-500 hover:text-red-600"
+                title={t('deleteBtn', lang)}
+                aria-label={t('deleteBtn', lang)}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                  <path d="M10 11v6M14 11v6" />
+                  <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
+                </svg>
+              </button>
+            </div>
           </li>
         ))}
       </ul>

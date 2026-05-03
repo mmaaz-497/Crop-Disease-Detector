@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useLanguage } from '@/hooks/useLanguage';
@@ -16,6 +16,7 @@ export default function ResultPage() {
   const router = useRouter();
   const [result, setResult] = useState<DiagnosisResult | null>(null);
   const [scanDate, setScanDate] = useState<string>(new Date().toISOString());
+  const resultCardRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     try {
@@ -47,12 +48,14 @@ export default function ResultPage() {
       <main className="max-w-lg mx-auto px-4 py-6 space-y-6 pb-12">
         <h1 className="text-2xl font-bold text-primary">{t('resultTitle', lang)}</h1>
 
-        <ResultCard result={result} />
+        <div ref={resultCardRef}>
+          <ResultCard result={result} />
+        </div>
 
         {/* Action buttons */}
         <div className="flex gap-3">
           <CopyTextButton result={result} />
-          <PDFExportButton result={result} scanDate={scanDate} />
+          <PDFExportButton result={result} scanDate={scanDate} captureRef={resultCardRef} />
         </div>
 
         {/* Scan Again */}

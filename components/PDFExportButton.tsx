@@ -9,9 +9,10 @@ import gsap from 'gsap';
 interface PDFExportButtonProps {
   result: DiagnosisResult;
   scanDate: string;
+  captureRef: React.RefObject<HTMLDivElement>;
 }
 
-export default function PDFExportButton({ result, scanDate }: PDFExportButtonProps) {
+export default function PDFExportButton({ result, scanDate, captureRef }: PDFExportButtonProps) {
   const { lang } = useLanguage();
   const [generating, setGenerating] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -21,7 +22,7 @@ export default function PDFExportButton({ result, scanDate }: PDFExportButtonPro
     setGenerating(true);
     try {
       const { generateDiagnosisPDF } = await import('@/lib/pdf');
-      await generateDiagnosisPDF(result, scanDate, lang);
+      await generateDiagnosisPDF(result, scanDate, lang, captureRef.current);
     } catch {
       // PDF generation failed silently — user can retry
     } finally {

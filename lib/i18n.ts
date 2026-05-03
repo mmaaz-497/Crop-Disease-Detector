@@ -43,6 +43,7 @@ const strings = {
   goHome:               { ur: 'ہوم پیج پر جائیں',                                   en: 'Go to Home' },
   retryBtn:             { ur: 'دوبارہ کوشش کریں',                                    en: 'Retry' },
   dismissBtn:           { ur: '✕',                                                   en: '✕' },
+  deleteBtn:            { ur: 'حذف کریں',                                             en: 'Delete' },
   // Error messages
   errInvalidImage:      { ur: 'فائل کا سائز بہت بڑا ہے یا فارمیٹ غلط ہے۔ JPEG/PNG/WebP میں 10 MB سے کم تصویر اپ لوڈ کریں۔', en: 'File too large or invalid format. Upload a JPEG, PNG, or WebP under 10 MB.' },
   errNotACrop:          { ur: 'براہ کرم فصل کی تصویر اپ لوڈ کریں (پتہ، تنا، پھل یا پودا)۔', en: 'Please upload a photo of a crop (leaf, stem, fruit, or plant).' },
