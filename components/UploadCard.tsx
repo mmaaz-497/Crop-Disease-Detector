@@ -36,7 +36,7 @@ export default function UploadCard({ previewUrl, onFileSelect }: UploadCardProps
     if (!el) return;
     gsap.killTweensOf(el, 'scale');
     const tween = gsap.to(el, { scale: isDragOver ? 1.02 : 1, duration: 0.15, ease: 'power2.out' });
-    return () => tween.kill();
+    return () => { tween.kill(); };
   }, [isDragOver]);
 
   function handleInputChange(e: React.ChangeEvent<HTMLInputElement>) {
